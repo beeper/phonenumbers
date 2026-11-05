@@ -51,7 +51,7 @@ func syntheticCollection() (*PhoneMetadataCollection, map[int][]string) {
 // without coupling assertions to the real metadata (which changes every release).
 func TestMetadataInjectionSeam(t *testing.T) {
 	// Baseline: embedded real metadata is active.
-	require.NotNil(t, currentMetadata)
+	require.NotNil(t, activeMetadata())
 	assert.Contains(t, GetSupportedRegions(), "US")
 	assert.Equal(t, 1, GetCountryCodeForRegion("US"))
 	assert.NotContains(t, GetSupportedRegions(), "XX")

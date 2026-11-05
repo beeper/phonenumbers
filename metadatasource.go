@@ -3,11 +3,15 @@
 // Last reconciled against: v9.0.32
 package phonenumbers
 
-import "google.golang.org/protobuf/proto"
+import (
+	"sync"
+
+	"google.golang.org/protobuf/proto"
+)
 
 // metadataContainer bundles all of the metadata-derived lookup state used by
 // the library. The package keeps a single active container (currentMetadata),
-// built from the embedded metadata during init. Bundling the state behind one
+// built from the embedded metadata on first use. Bundling the state behind one
 // swappable value is the seam that lets tests run against alternate metadata
 // (e.g. upstream's synthetic PhoneNumberMetadataForTesting data) without
 // changing the public, package-level API.
@@ -41,9 +45,25 @@ type metadataContainer struct {
 }
 
 // currentMetadata is the active metadata container. It is populated from the
-// embedded metadata by initMetadata during package initialization. Tests may
-// swap it via useMetadata to exercise the library against alternate metadata.
-var currentMetadata *metadataContainer
+// embedded metadata by initMetadata on first use (see activeMetadata). Tests
+// may swap it via useMetadata to exercise the library against alternate
+// metadata.
+var (
+	currentMetadata  *metadataContainer
+	metadataLoadOnce sync.Once
+)
+
+// activeMetadata returns the active metadata container, building it from the
+// embedded metadata on first use. Loading lazily keeps programs that link this
+// package without using it from holding the parsed metadata in memory.
+func activeMetadata() *metadataContainer {
+	metadataLoadOnce.Do(func() {
+		if currentMetadata == nil {
+			initMetadata()
+		}
+	})
+	return currentMetadata
+}
 
 func initMetadata() {
 	// load our regions
@@ -132,49 +152,49 @@ func newMetadataContainer(coll *PhoneMetadataCollection, countryCodeToRegion map
 // returned restore function (typically via t.Cleanup) and must not run such
 // tests in parallel, since the active container is process-global.
 func useMetadata(mc *metadataContainer) (restore func()) {
-	prev := currentMetadata
+	prev := activeMetadata()
 	currentMetadata = mc
 	return func() { currentMetadata = prev }
 }
 
 func readFromNanpaRegions(key string) (struct{}, bool) {
-	v, ok := currentMetadata.nanpaRegions[key]
+	v, ok := activeMetadata().nanpaRegions[key]
 	return v, ok
 }
 
 func readFromRegionToMetadataMap(key string) (*PhoneMetadata, bool) {
-	v, ok := currentMetadata.regionToMetadataMap[key]
+	v, ok := activeMetadata().regionToMetadataMap[key]
 	return v, ok
 }
 
 func readFromCountryCodeToNonGeographicalMetadataMap(key int) (*PhoneMetadata, bool) {
-	v, ok := currentMetadata.countryCodeToNonGeographicalMetadataMap[key]
+	v, ok := activeMetadata().countryCodeToNonGeographicalMetadataMap[key]
 	return v, ok
 }
 
 var (
-	currMetadataColl *PhoneMetadataCollection
-	reloadMetadata   = true
+	currMetadataColl    *PhoneMetadataCollection
+	currMetadataCollErr error
+	metadataCollOnce    sync.Once
 )
 
 // MetadataCollection returns the embedded territory metadata collection. The
 // result is parsed once and cached; it always reflects the embedded data and
 // is independent of any container swapped in via useMetadata.
 func MetadataCollection() (*PhoneMetadataCollection, error) {
-	if !reloadMetadata {
-		return currMetadataColl, nil
-	}
+	metadataCollOnce.Do(func() {
+		rawBytes, err := decodeUnzip(numberData)
+		if err != nil {
+			currMetadataCollErr = err
+			return
+		}
 
-	rawBytes, err := decodeUnzip(numberData)
-	if err != nil {
-		return nil, err
-	}
-
-	metadataCollection := &PhoneMetadataCollection{}
-	if err = proto.Unmarshal(rawBytes, metadataCollection); err != nil {
-		return nil, err
-	}
-	currMetadataColl = metadataCollection
-	reloadMetadata = false
-	return metadataCollection, nil
+		metadataCollection := &PhoneMetadataCollection{}
+		if err = proto.Unmarshal(rawBytes, metadataCollection); err != nil {
+			currMetadataCollErr = err
+			return
+		}
+		currMetadataColl = metadataCollection
+	})
+	return currMetadataColl, currMetadataCollErr
 }

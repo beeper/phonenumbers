@@ -12,14 +12,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// init must live in this file: Go runs package init() functions in lexical
-// filename order, and metadata loading depends on the protobuf types having
-// been registered by phonemetadata.pb.go / phonenumber.pb.go first. This
-// filename sorts after both, preserving that ordering.
-func init() {
-	initMetadata()
-}
-
 const (
 	// MIN_LENGTH_FOR_NSN is the minimum and maximum length of the national significant number.
 	MIN_LENGTH_FOR_NSN = 2
@@ -807,7 +799,7 @@ func normalizeHelper(number string,
 
 // GetSupportedRegions returns all regions the library has metadata for.
 func GetSupportedRegions() map[string]bool {
-	return currentMetadata.supportedRegions
+	return activeMetadata().supportedRegions
 }
 
 // GetSupportedCallingCodes returns all country calling codes the library has metadata for, covering both non-geographical
@@ -815,12 +807,12 @@ func GetSupportedRegions() map[string]bool {
 // used to populate a drop-down box of country calling codes for a phone-number widget, for
 // instance.
 func GetSupportedCallingCodes() map[int]bool {
-	return currentMetadata.supportedCallingCodes
+	return activeMetadata().supportedCallingCodes
 }
 
 // GetSupportedGlobalNetworkCallingCodes returns all global network calling codes the library has metadata for.
 func GetSupportedGlobalNetworkCallingCodes() map[int]bool {
-	return currentMetadata.countryCodesForNonGeographicalRegion
+	return activeMetadata().countryCodesForNonGeographicalRegion
 }
 
 // Helper function to check if the national prefix formatting rule has the
@@ -848,13 +840,13 @@ func isNumberGeographical(phoneNumber *PhoneNumber) bool {
 
 // Helper function to check region code is not unknown or null.
 func isValidRegionCode(regionCode string) bool {
-	valid := currentMetadata.supportedRegions[regionCode]
+	valid := activeMetadata().supportedRegions[regionCode]
 	return len(regionCode) != 0 && valid
 }
 
 // Helper function to check the country calling code is valid.
 func hasValidCountryCallingCode(countryCallingCode int) bool {
-	_, containsKey := currentMetadata.countryCodeToRegion[countryCallingCode]
+	_, containsKey := activeMetadata().countryCodeToRegion[countryCallingCode]
 	return containsKey
 }
 
@@ -1875,7 +1867,7 @@ func getMetadataForRegion(regionCode string) *PhoneMetadata {
 }
 
 func getMetadataForNonGeographicalRegion(countryCallingCode int) *PhoneMetadata {
-	_, ok := currentMetadata.countryCodeToRegion[countryCallingCode]
+	_, ok := activeMetadata().countryCodeToRegion[countryCallingCode]
 	if !ok {
 		return nil
 	}
@@ -1949,7 +1941,7 @@ func IsValidNumberForRegion(number *PhoneNumber, regionCode string) bool {
 // geocoding at the region level.
 func GetRegionCodeForNumber(number *PhoneNumber) string {
 	var countryCode int = int(number.GetCountryCode())
-	var regions []string = currentMetadata.countryCodeToRegion[countryCode]
+	var regions []string = activeMetadata().countryCodeToRegion[countryCode]
 	if len(regions) == 0 {
 		return ""
 	}
@@ -1991,7 +1983,7 @@ func getRegionCodeForNumberFromRegionList(
 // value "001" will be returned (corresponding to the value for World in
 // the UN M.49 schema).
 func GetRegionCodeForCountryCode(countryCallingCode int) string {
-	var regionCodes []string = currentMetadata.countryCodeToRegion[countryCallingCode]
+	var regionCodes []string = activeMetadata().countryCodeToRegion[countryCallingCode]
 	if len(regionCodes) == 0 {
 		return UNKNOWN_REGION
 	}
@@ -2003,7 +1995,7 @@ func GetRegionCodeForCountryCode(countryCallingCode int) string {
 // code 001 is returned. Also, in the case of no region code being found,
 // an empty list is returned.
 func GetRegionCodesForCountryCode(countryCallingCode int) []string {
-	var regionCodes []string = currentMetadata.countryCodeToRegion[countryCallingCode]
+	var regionCodes []string = activeMetadata().countryCodeToRegion[countryCallingCode]
 	return regionCodes
 }
 
@@ -2290,7 +2282,7 @@ func extractCountryCode(fullNumber, nationalNumber *Builder) int {
 	)
 	for i := 1; i <= MAX_LENGTH_COUNTRY_CODE && i <= numberLength; i++ {
 		potentialCountryCode, _ = strconv.Atoi(string(fullNumBytes[0:i]))
-		if _, ok := currentMetadata.countryCodeToRegion[potentialCountryCode]; ok {
+		if _, ok := activeMetadata().countryCodeToRegion[potentialCountryCode]; ok {
 			nationalNumber.Write(fullNumBytes[i:])
 			return potentialCountryCode
 		}
